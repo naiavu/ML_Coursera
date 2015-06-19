@@ -1,0 +1,113 @@
+---
+title: "Machine Learning Analysis of Weight Lifting Exercises"
+author: "Irina Z."
+date: "June 19th, 2015"
+output: html_document
+---
+
+## Synopsis 
+
+The purpose of this assignment is to analyze Weight Lifting Exercises dataset presented at [Human Activity Recognition](http://groupware.les.inf.puc-rio.br/har) research website in order to be able to predict the manner in which participants did the exercise. The original dataset used for this analysis was generously made available by the author of this paper [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201)
+
+The data was collected from accelerometers on the belt, forearm, arm and dumbbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The machine learning algorithm we use for prediction is [Random Forest](https://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm) because of its top performance and accuracy.
+
+## Exploratory Analysis and Features Selection
+
+### Loading Data
+
+Links to obtain the data: 
+
+[Training](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+[Testing](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+The important key idea in designing prediction model is that we cannot use test data when building the model, otherwise it will become a part of training dataset. So we will put the test data aside and use it only once for the final test of our model, which we will build and cross-validate using the training dataset. 
+
+```{r, echo=TRUE}
+## Loading required libraries
+require(caret); require(randomForest)
+
+## Getting data
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "pml-training.csv"
+testFile  <- "pml-testing.csv"
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile)
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile)
+}
+## Reading training data treating empty/NaN/NA values as missing values
+trainSet <- read.csv(trainFile, stringsAsFactors=FALSE, na.strings=c("","#DIV/0!"))
+```
+### Pre-processing Data
+
+First we make sure that all missing values (NAs) are properly allotted and then we remove the variables with more than 5% of the observations as NAs from the set of selected features:
+```{r}
+# Assigning all 'NA' as NA
+trainSet[trainSet=='NA'] <- NA
+# Selecting only variables with less than 5% missing values
+trainSet <- trainSet[,colSums(is.na(trainSet)) < nrow(trainSet)*.95]
+```
+Then since variables such as timestamps and the indices of data records are not meaningful for our model training, we will remove those from the selected features as well:
+```{r}
+trainSet <- trainSet[,-(1:7)]
+```
+
+## Building Prediction Model
+
+Because all of our predictors/features are continuous variables now and because of its accuracy, we will use the Random Forest algorithm. To get better estimate of what a testing set accuracy will be, we will need an independent dataset to test our model. Since we cannot use our original testing set for that, we will split the training set 60/40: e.g. 60% of samples from the original training set will be used for building and tuning the model with 10-fold cross-validation technique, and the other 40% of samples will be used for testing that model. We will need our outcome variable as a factor for this.
+```{r}
+trainSet$classe <- as.factor(trainSet$classe)
+## Separating training set 60/40
+set.seed(456)
+inTrain <- createDataPartition(y = trainSet$classe, p=0.6, list = FALSE)
+trainData <- trainSet[inTrain, ]
+valData <- trainSet[-inTrain, ]
+```
+### Model tuning
+
+We will use 10-fold cross-validation as a tool of choice for model fitting:
+```{r}
+set.seed(789)
+## Choosing train options
+topts <- trainControl(method="cv", number=10, allowParallel=TRUE, verboseIter=T)
+## Building the model
+modFit <- train(classe ~ ., data=trainData, method="rf", trControl=topts)
+```
+The model built is the Random Forest classification model with 500 trees and 27 variables randomly sampled at each split, resampled with 10-fold cross-validation technique. The estimate of the error rate is 0.83%, so we expect the out-of-sample error to be close to it:
+```{r}
+modFit$finalModel
+```
+
+### Out of Sample Error and Accuracy of Prediction
+
+Now we verify our model by testing with independent data that we got from the split of training dataset:
+```{r}
+prediction <- predict(modFit, newdata=valData)
+confusionMatrix(valData$classe, prediction)
+```
+Obtained accuracy in verification data is very high: 99.16%, which indicates that out-of-sample error is 0.84% - pretty close to the estimate of 0.83%. With these results we can be confident that our model is ready to predict new data without having to fine-tune the classification algorithm.
+
+## Predicting with Final Testing Set
+
+The final testing set is quite small - just 20 cases. As per assignment requirement we will generate prediction output in separate text files. After accuracy verification was performed, we confirm that all 20 samples were correctly predicted.
+
+```{r}
+testSet <- read.csv(testFile)
+pml_write_files = function(x) {
+  n = length(x)
+  for (i in 1:n) {
+    filename = paste0("problem_id_", i, ".txt")
+    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+  }
+}
+
+answers = predict(modFit, testSet)
+pml_write_files(answers)
+```
+
+## Conclusion
+
+The accuracy on the final test was very high, confirming that the model built with Random Forest classification algorithm was a fitting choice to predict the manner (**classe** outcome) in which participants did the exercise.
