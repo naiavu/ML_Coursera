@@ -1,0 +1,1 @@
+This repository contains a prediction report for the Machine Learning course given by Johns Hopkins University on Coursera. To view the HTML version go to http://naiavu.github.io/ML_Coursera/pml_project.html
